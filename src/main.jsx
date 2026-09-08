@@ -773,10 +773,28 @@ function SputumApp() {
   </>;
 }
 
-const isLogin = location.pathname === "/login" || location.pathname.endsWith("login.html");
-const isTbDatabase = location.pathname === "/tb";
-const isTracingDatabase = location.pathname === "/tracing";
-const isClinicQueue = location.pathname === "/poli-tb";
-const isSputum = location.pathname === "/dahak";
-const isPublicQueue = location.pathname === "/daftar-poli-tb";
-createRoot(document.getElementById("root")).render(isLogin ? <LoginApp /> : isPublicQueue ? <QueueRegistrationApp /> : isTbDatabase ? <DashboardApp /> : isTracingDatabase ? <TracingApp /> : isClinicQueue ? <ClinicQueueApp /> : isSputum ? <SputumApp /> : <PortalApp />);
+function AppRouter() {
+  const [hash, setHash] = useState(window.location.hash);
+
+  useEffect(() => {
+    const handleHashChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  const isLogin = location.pathname === "/login" || location.pathname.endsWith("login.html");
+  const isPublicQueue = location.pathname === "/daftar-poli-tb";
+
+  if (isLogin) return <LoginApp />;
+  if (isPublicQueue) return <QueueRegistrationApp />;
+
+  // Evaluasi halaman berdasarkan hash (#)
+  if (hash === "#/tb" || hash.startsWith("#/tb?")) return <DashboardApp />;
+  if (hash === "#/tracing" || hash.startsWith("#/tracing?")) return <TracingApp />;
+  if (hash === "#/poli-tb" || hash.startsWith("#/poli-tb?")) return <ClinicQueueApp />;
+  if (hash === "#/dahak" || hash.startsWith("#/dahak?")) return <SputumApp />;
+
+  return <PortalApp />;
+}
+
+createRoot(document.getElementById("root")).render(<AppRouter />);
