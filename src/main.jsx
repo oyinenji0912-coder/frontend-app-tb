@@ -782,13 +782,11 @@ function AppRouter() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  const isLogin = location.pathname === "/login" || location.pathname.endsWith("login.html");
-  const isPublicQueue = location.pathname === "/daftar-poli-tb";
+  const isLogin = location.pathname === "/login" || location.pathname.endsWith("login.html") || hash === "#/login";
 
   if (isLogin) return <LoginApp />;
-  if (isPublicQueue) return <QueueRegistrationApp />;
 
-  // Evaluasi halaman berdasarkan hash (#)
+  if (hash === "#/daftar-poli-tb" || hash.startsWith("#/daftar-poli-tb?")) return <QueueRegistrationApp />;
   if (hash === "#/tb" || hash.startsWith("#/tb?")) return <DashboardApp />;
   if (hash === "#/tracing" || hash.startsWith("#/tracing?")) return <TracingApp />;
   if (hash === "#/poli-tb" || hash.startsWith("#/poli-tb?")) return <ClinicQueueApp />;
