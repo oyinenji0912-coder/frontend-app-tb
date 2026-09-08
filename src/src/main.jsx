@@ -317,7 +317,7 @@ function DashboardApp() {
   useEffect(() => { document.title = "Dalam Pengobatan"; document.body.className = ""; Promise.all([loadSummary(), loadWorklist()]).catch(() => toast("Database tidak dapat dimuat.")); }, [loadSummary, loadWorklist, toast]);
   useEffect(() => { const timer = setTimeout(() => setDebouncedQuery(query.trim()), 220); return () => clearTimeout(timer); }, [query]);
   useEffect(() => { loadPatients().catch(() => toast("Daftar pasien tidak dapat dimuat.")); }, [loadPatients, toast]);
-  useEffect(() => { if (!chartsOpen) return; loadCharts().catch(() => toast("Grafik tidak dapat dimuat.")); const timer = setInterval(() => loadCharts().catch(() => {}), 15000); return () => clearInterval(timer); }, [chartsOpen, loadCharts, toast]);
+  useEffect(() => { if (!chartsOpen) return; loadCharts().catch(() => toast("Grafik tidak dapat dimuat.")); const timer = setInterval(() => loadCharts().catch(() => { }), 15000); return () => clearInterval(timer); }, [chartsOpen, loadCharts, toast]);
 
   const sortedPatients = useMemo(() => {
     if (!sort.key) return patients;
@@ -579,7 +579,7 @@ function QueueRegistrationApp() {
   useEffect(() => {
     if (!token) return;
     loadTicket().catch((caught) => setError(caught.message));
-    const timer = setInterval(() => loadTicket().catch(() => {}), 4000);
+    const timer = setInterval(() => loadTicket().catch(() => { }), 4000);
     return () => clearInterval(timer);
   }, [token, loadTicket]);
   function playNotificationTone() {
@@ -647,7 +647,7 @@ function QueueRegistrationApp() {
   return <><div className="queue-public-page"><header className="queue-public-header"><div className="queue-public-mark">TB</div><div><div className="eyebrow">PUSKESMAS KEBON JERUK</div><h1>Pendaftaran Poli TB</h1><p>Ambil nomor antrean sebelum menuju meja pendaftaran.</p></div></header><main className="queue-public-main">
     {ticket ? <QueueTicket ticket={ticket} onReset={reset} notificationEnabled={notificationEnabled} onEnableNotifications={enableNotifications} /> : <section className="queue-register-card"><div className="queue-register-head"><span>Pendaftaran hari ini</span><strong>{config.date ? formatDate(config.date) : "Memuat…"}</strong></div><form onSubmit={submit}><label>Nama lengkap pasien<input name="full_name" required minLength="3" maxLength="120" autoComplete="name" /></label><label>Nomor handphone<input name="phone_number" required inputMode="tel" autoComplete="tel" placeholder="Contoh: 081234567890" /></label><fieldset><legend>Jenis pasien</legend><label className="radio-option"><input type="radio" name="patient_type" value="Lama" required /> Pasien lama</label><label className="radio-option"><input type="radio" name="patient_type" value="Baru" required /> Pasien baru</label></fieldset><label>Nomor rekam medis <small>(opsional)</small><input name="medical_record_no" maxLength="50" /></label><label className="consent-option"><input type="checkbox" name="consent" required /> Saya menyetujui data ini disimpan untuk pendaftaran dan pelayanan Poli TB.</label><div className="queue-form-error" role="alert">{error}</div><button className="queue-submit" type="submit" disabled={busy}>{busy ? "Membuat antrean…" : "Ambil Nomor Antrean"}</button></form><p className="queue-privacy">Data dikirim hanya ke komputer lokal Puskesmas pada jaringan ini.</p></section>}
   </main></div>
-  {callAlert ? <div className="queue-call-overlay" role="alertdialog" aria-modal="true" aria-labelledby="queue-call-title"><div className="queue-call-card"><div className="queue-call-bell">🔔</div><div className="eyebrow">NOMOR {ticket?.queue_code}</div><h2 id="queue-call-title">Giliran Anda Dipanggil</h2><p>Silakan segera menuju Poli TB dan tunjukkan nomor antrean kepada petugas.</p><button type="button" onClick={() => setCallAlert(false)}>Saya Menuju Poli TB</button></div></div> : null}
+    {callAlert ? <div className="queue-call-overlay" role="alertdialog" aria-modal="true" aria-labelledby="queue-call-title"><div className="queue-call-card"><div className="queue-call-bell">🔔</div><div className="eyebrow">NOMOR {ticket?.queue_code}</div><h2 id="queue-call-title">Giliran Anda Dipanggil</h2><p>Silakan segera menuju Poli TB dan tunjukkan nomor antrean kepada petugas.</p><button type="button" onClick={() => setCallAlert(false)}>Saya Menuju Poli TB</button></div></div> : null}
   </>;
 }
 
@@ -670,7 +670,7 @@ function ClinicQueueApp() {
       setConfig(data); setQrData(await QRCode.toDataURL(data.public_url, { width: 320, margin: 2, color: { dark: "#123D64", light: "#FFFFFF" } }));
     }).catch(() => toast("Alamat pendaftaran tidak dapat dibuat."));
   }, [toast]);
-  useEffect(() => { loadQueue().catch(() => toast("Antrean tidak dapat dimuat.")); const timer = setInterval(() => loadQueue().catch(() => {}), 7000); return () => clearInterval(timer); }, [loadQueue, toast]);
+  useEffect(() => { loadQueue().catch(() => toast("Antrean tidak dapat dimuat.")); const timer = setInterval(() => loadQueue().catch(() => { }), 7000); return () => clearInterval(timer); }, [loadQueue, toast]);
   async function setStatus(record, status) {
     setBusy(true);
     try {
