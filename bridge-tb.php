@@ -119,7 +119,6 @@ switch ($method) {
             }
             curl_setopt($curl, CURLOPT_POSTFIELDS, $postData);
         } else {
-            // Raw binary file upload (Support Buffer Import Pasien/Tracing)
             $rawBody = file_get_contents('php://input');
             curl_setopt($curl, CURLOPT_POSTFIELDS, $rawBody);
             $headers[] = 'Content-Length: ' . strlen($rawBody);
@@ -141,8 +140,8 @@ switch ($method) {
         break;
 }
 
+// WAJIB: Terapkan $headers ke cURL SETELAH semua opsi method diset
 curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
-
 $response = curl_exec($curl);
 
 if (curl_errno($curl)) {
