@@ -14,14 +14,16 @@ const viewOptions = [
   ["duplicates", "Kemungkinan NIK ganda"], ["all", "Semua pasien"],
 ];
 
-async function api(path, options) {
+// Helper API tanpa pemicu redirect Auth / Login
+async function api(path, options = {}) {
   const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-  const bridgeUrl = `bridge.php?endpoint=${encodeURIComponent(cleanPath)}`;
-  const response = await fetch(bridgeUrl, options);
-  if (response.status === 401 && !path.startsWith("/api/auth/")) {
-    window.location.hash = "#/login";
-    throw new Error("Sesi login berakhir");
-  }
+  const bridgeUrl = `/kawal-tb/bridge-tb.php?endpoint=${encodeURIComponent(cleanPath)}`;
+
+  const response = await fetch(bridgeUrl, {
+    ...options,
+    credentials: 'include'
+  });
+
   return response;
 }
 
@@ -70,74 +72,12 @@ function Modal({ open, onClose, className = "", children }) {
   return <dialog ref={ref} className={className} onCancel={(event) => { event.preventDefault(); onClose(); }} onClose={onClose}>{children}</dialog>;
 }
 
-function LoginApp() {
-  const [setupMode, setSetupMode] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    document.title = "TUBERKLIK — Login";
-    api("/api/auth/status").then((response) => response.json()).then((status) => {
-      if (status.authenticated) return window.location.hash = "#/";
-      setSetupMode(status.setup_required);
-      setReady(true);
-    }).catch(() => setError("Halaman login tidak dapat dimuat."));
-  }, []);
-
-  async function submit(event) {
-    event.preventDefault();
-    setError("");
-    const form = new FormData(event.currentTarget);
-    const password = String(form.get("password") || "");
-    if (setupMode && password !== form.get("confirm_password")) return setError("Ulangan kata sandi tidak sama.");
-    setBusy(true);
-    try {
-      const response = await api(setupMode ? "/api/auth/setup" : "/api/auth/login", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: form.get("username"), password }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Login gagal");
-      window.location.hash = "#/";
-    } catch (caught) {
-      setError(caught.message);
-      setBusy(false);
-    }
-  }
-
-  return <div className="login-page">
-    <main className="login-shell">
-      <section className="login-card">
-        <div className="login-logo-wrap"><img className="login-logo" src="/dennise-afianto-logo-transparent-final.png" alt="Logo Dennise Afianto" /></div>
-        <div className="eyebrow">PUSKESMAS KEBON JERUK</div>
-        <h1>TUBERKLIK</h1>
-        <p className="login-brand-expansion">Tuberkulosis Berbasis Elektronik untuk Rekam, Konsultasi, Lacak, Informasi, dan Kendali</p>
-        <p className="login-context">{setupMode ? "Buat akun admin pertama untuk melindungi database lokal." : "Masuk dengan akun lokal untuk membuka portal."}</p>
-        <form onSubmit={submit}>
-          <label>Username<input name="username" autoComplete="username" required minLength="3" maxLength="50" disabled={!ready || busy} /></label>
-          <label>Kata sandi<input name="password" type="password" autoComplete={setupMode ? "new-password" : "current-password"} required minLength="8" disabled={!ready || busy} /></label>
-          {setupMode && <label>Ulangi kata sandi<input name="confirm_password" type="password" autoComplete="new-password" required minLength="8" disabled={busy} /></label>}
-          <div id="login-error" role="alert">{error}</div>
-          <button className="login-submit" type="submit" disabled={!ready || busy}>{busy ? (setupMode ? "Membuat akun…" : "Memeriksa…") : (setupMode ? "Buat akun dan masuk" : "Masuk")}</button>
-        </form>
-        <p className="login-local">Data dan akun tersimpan hanya di komputer ini.</p>
-        <p className="login-owner">Oleh Dennise Afianto</p>
-      </section>
-    </main>
-  </div>;
-}
-
 function PortalApp() {
   useEffect(() => { document.title = "TUBERKLIK — Puskesmas Kebon Jeruk"; }, []);
-  async function logout() {
-    await api("/api/auth/logout", { method: "POST" });
-    window.location.hash = "#/login";
-  }
   return <div className="portal-page">
     <header className="portal-header">
       <div><div className="eyebrow">PUSKESMAS KECAMATAN KEBON JERUK</div><h1>TUBERKLIK</h1><p className="portal-brand-expansion">Tuberkulosis Berbasis Elektronik untuk Rekam, Konsultasi, Lacak, Informasi, dan Kendali</p></div>
-      <div className="portal-header-actions"><span>Data Tersimpan Lokal</span><button type="button" onClick={logout}>Keluar</button></div>
+      <div className="portal-header-actions"><span>Mode Pengujian Lokal</span></div>
     </header>
     <main className="portal-main">
       <section className="portal-intro"><div className="eyebrow">PORTAL TUBERKLIK</div><h2>Layanan Puskesmas Kebon Jeruk</h2><p>Pilih modul untuk pemantauan pengobatan, tracing TB, antrean Poli TB, atau rekap pemeriksaan dahak.</p></section>
@@ -337,8 +277,11 @@ function DashboardApp() {
   const panelRef = useRef(null);
 
   const loadSummary = useCallback(async () => {
-    const [summaryData, metaData] = await Promise.all([api("/api/summary").then((r) => r.json()), api("/api/meta").then((r) => r.json())]);
-    setSummary(summaryData); setMeta(metaData);
+    const [summaryData, metaData] = await Promise.all([
+      api("/api/summary").then((r) => r.json()),
+      api("/api/meta").then((r) => r.json())
+    ]);
+    setSummary(summaryData || {}); setMeta(metaData || {});
   }, []);
   const loadWorklist = useCallback(async () => {
     const data = await api("/api/worklist").then((r) => r.json()); setFacilities(data.facilities || []);
@@ -385,7 +328,13 @@ function DashboardApp() {
   }
   function downloadExport(format) {
     const params = new URLSearchParams({ format, view, facility, q: query.trim() });
-    const anchor = document.createElement("a"); anchor.href = `bridge.php?endpoint=api/export&${params}`; anchor.download = ""; document.body.append(anchor); anchor.click(); anchor.remove();
+    const bridgeUrl = `/kawal-tb/bridge-tb.php?endpoint=${encodeURIComponent(`api/export?${params}`)}`;
+    const anchor = document.createElement("a");
+    anchor.href = bridgeUrl;
+    anchor.download = "";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
     toast(format === "pptx" ? "Menyiapkan rekap PowerPoint…" : `Menyiapkan rekap ${format.toUpperCase()}…`);
   }
   async function uploadFiles(event) {
@@ -401,12 +350,11 @@ function DashboardApp() {
       await Promise.all([loadSummary(), loadWorklist(), loadPatients()]); if (chartsOpen) await loadCharts(); toast(`${imported} pasien dari ${files.length} file berhasil diperbarui.`);
     } catch (caught) { toast(caught.message || "Impor data gagal."); } finally { setUploading(false); event.target.value = ""; }
   }
-  async function logout() { await api("/api/auth/logout", { method: "POST" }); window.location.hash = "#/login"; }
 
   const backupLabel = meta.last_backup_at ? `Backup terakhir: ${new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(meta.last_backup_at))}` : "Belum ada backup database.";
   const currentLabel = viewOptions.find(([key]) => key === view)?.[1] || "Daftar pasien";
   return <>
-    <header className="topbar"><div><div className="eyebrow">PUSKESMAS KECAMATAN KEBON JERUK</div><h1>Dalam Pengobatan</h1><p>{meta.period ? `${meta.period} • Data per ${formatDate(summary.today)}` : "Memuat periode data…"}</p></div><div className="header-actions"><div className="privacy">Data Tersimpan Lokal</div><a className="chart-button portal-back" href="#/">Portal Utama</a><button className="chart-button" onClick={() => setChartsOpen(true)}>Grafik Representatif</button><button className="chart-button" onClick={openQuality}>Kualitas Data</button><details className="export-dropdown"><summary>Download Rekap</summary><div className="export-menu"><button onClick={() => downloadExport("xlsx")}><strong>Excel (.xlsx)</strong><small>Ringkasan, rekap puskesmas, dan data pasien</small></button><button onClick={() => downloadExport("pptx")}><strong>PowerPoint (.pptx)</strong><small>Lima slide rekap untuk rapat</small></button><button onClick={() => downloadExport("csv")}><strong>CSV (.csv)</strong><small>Data pasien untuk pengolahan lanjutan</small></button></div></details><button className="upload-button" onClick={() => uploadRef.current?.click()} disabled={uploading}>{uploading ? "Mengimpor…" : "Upload Data Terbaru"}</button><button className="logout-button" onClick={logout}>Keluar</button><input ref={uploadRef} type="file" accept=".xls,application/vnd.ms-excel" multiple hidden onChange={uploadFiles} /></div></header>
+    <header className="topbar"><div><div className="eyebrow">PUSKESMAS KECAMATAN KEBON JERUK</div><h1>Dalam Pengobatan</h1><p>{meta.period ? `${meta.period} • Data per ${formatDate(summary.today)}` : "Memuat periode data…"}</p></div><div className="header-actions"><a className="chart-button portal-back" href="#/">Portal Utama</a><button className="chart-button" onClick={() => setChartsOpen(true)}>Grafik Representatif</button><button className="chart-button" onClick={openQuality}>Kualitas Data</button><details className="export-dropdown"><summary>Download Rekap</summary><div className="export-menu"><button onClick={() => downloadExport("xlsx")}><strong>Excel (.xlsx)</strong><small>Ringkasan, rekap puskesmas, dan data pasien</small></button><button onClick={() => downloadExport("pptx")}><strong>PowerPoint (.pptx)</strong><small>Lima slide rekap untuk rapat</small></button><button onClick={() => downloadExport("csv")}><strong>CSV (.csv)</strong><small>Data pasien untuk pengolahan lanjutan</small></button></div></details><button className="upload-button" onClick={() => uploadRef.current?.click()} disabled={uploading}>{uploading ? "Mengimpor…" : "Upload Data Terbaru"}</button><input ref={uploadRef} type="file" accept=".xls,application/vnd.ms-excel" multiple hidden onChange={uploadFiles} /></div></header>
     <main><SummaryCards summary={summary} setView={(next) => chooseView(next, true)} /><WorkCenter summary={summary} backupLabel={backupLabel} setView={(next) => chooseView(next, true)} onBackup={backupNow} backingUp={backingUp} />
       <section className="panel" ref={panelRef}><div className="toolbar"><div><h2>Daftar pasien</h2><p>{currentLabel}</p></div><div className="controls"><label className="search"><span className="sr-only">Cari pasien</span><input type="search" placeholder="Cari nama, puskesmas, no. HP, RM, SITB, atau NIK…" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} /></label><label><span className="sr-only">Filter daftar</span><select value={view} onChange={(event) => setViewState(event.target.value)}>{viewOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label><span className="sr-only">Filter puskesmas</span><select value={facility} onChange={(event) => setFacility(event.target.value)}><option value="">Semua Puskesmas</option>{facilities.map((item) => <option key={item}>{item}</option>)}</select></label></div></div>
         <div className="table-wrap"><table><thead><tr>{[["full_name", "Pasien"], ["origin_facility", "Asal Puskesmas"], ["operational_status", "Status"], ["treatment_start", "Mulai"], ["estimated_treatment_end", "Taksiran selesai pengobatan"]].map(([key, label]) => <th key={key}><button className={`sort-button${sort.key === key ? " active" : ""}`} type="button" onClick={() => changeSort(key)} aria-sort={sort.key === key ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>{label} <span aria-hidden="true">{sortIcon(key)}</span></button></th>)}<th>Follow Up</th><th>Status DM/HIV</th><th /></tr></thead><tbody><PatientRows patients={sortedPatients} onOpen={(patient) => setSelected(patient)} onFollowUp={saveFollowUp} /></tbody></table></div><div className="panel-footer"><span>{count === null ? "—" : `${count} pasien ditampilkan`}</span><span>Identitas NIK disamarkan pada layar.</span></div>
@@ -548,12 +496,12 @@ function TracingApp() {
       setSyncing(false);
     }
   }
-  async function logout() { await api("/api/auth/logout", { method: "POST" }); window.location.hash = "#/login"; }
+
   const cards = type === "schedule" ? [
     [summary.schedule_total, "Total jadwal"], [summary.upcoming, "Jadwal mendatang"], [summary.realized, "Ditandai terlaksana"], [summary.result_rows, "Rekap tersedia"],
   ] : [[summary.examined, "Peserta diperiksa"], [summary.index_cases, "Indeks kasus"], [summary.tb_symptoms, "Ada gejala TBC"], [summary.eligible_tpt, "Eligible TPT"]];
   return <>
-    <header className="topbar tracing-topbar"><div><a className="portal-back" href="#/">← Portal Utama</a><div className="eyebrow">TRACING TB</div><h1>Jadwal dan Rekap Tracing TB</h1><p>Jadwal kegiatan dan hasil skrining tersimpan dalam satu modul yang mudah diperbarui.</p></div><div className="header-actions"><span className="privacy">Data Tersimpan Lokal</span><button className="upload-button" type="button" onClick={() => uploadRef.current?.click()} disabled={syncing}>{syncing ? "Menyinkronkan…" : "Sinkronkan Spreadsheet"}</button><input ref={uploadRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={syncSpreadsheet} /><button className="logout-button" type="button" onClick={logout}>Keluar</button></div></header>
+    <header className="topbar tracing-topbar"><div><a className="portal-back" href="#/">← Portal Utama</a><div className="eyebrow">TRACING TB</div><h1>Jadwal dan Rekap Tracing TB</h1><p>Jadwal kegiatan dan hasil skrining tersimpan dalam satu modul yang mudah diperbarui.</p></div><div className="header-actions"><button className="upload-button" type="button" onClick={() => uploadRef.current?.click()} disabled={syncing}>{syncing ? "Menyinkronkan…" : "Sinkronkan Spreadsheet"}</button><input ref={uploadRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={syncSpreadsheet} /></div></header>
     <main className="tracing-main">
       <section className="tracing-summary">{cards.map(([value, label]) => <article className="tracing-stat" key={label}><strong>{value ?? "—"}</strong><span>{label}</span></article>)}</section>
       <TracingAchievement data={achievement} />
@@ -722,10 +670,9 @@ function ClinicQueueApp() {
       toast(`Memanggil nomor ${result.queue_code}.`); await loadQueue();
     } catch (caught) { toast(caught.message); } finally { setBusy(false); }
   }
-  async function logout() { await api("/api/auth/logout", { method: "POST" }); window.location.hash = "#/login"; }
   function copyLink() { navigator.clipboard?.writeText(config.public_url).then(() => toast("Tautan pendaftaran disalin.")).catch(() => toast("Salin tautan secara manual.")); }
   const statusBadge = (status) => <span className={`queue-badge ${status.toLowerCase()}`}>{status}</span>;
-  return <><header className="topbar queue-admin-topbar"><div><a className="portal-back" href="#/">← Portal Utama</a><div className="eyebrow">PELAYANAN POLI TB</div><h1>Pendaftaran Poli TB</h1><p>Antrean online harian dan pencatatan pasien yang datang ke Poli TB.</p></div><div className="header-actions"><span className="privacy">Data Tersimpan Lokal</span><button className="logout-button" onClick={logout}>Keluar</button></div></header><main className="queue-admin-main">
+  return <><header className="topbar queue-admin-topbar"><div><a className="portal-back" href="#/">← Portal Utama</a><div className="eyebrow">PELAYANAN POLI TB</div><h1>Pendaftaran Poli TB</h1><p>Antrean online harian dan pencatatan pasien yang datang ke Poli TB.</p></div><div className="header-actions"><span className="privacy">Data Tersimpan Lokal</span></div></header><main className="queue-admin-main">
     <section className="queue-admin-summary"><article><strong>{summary.waiting ?? "—"}</strong><span>Menunggu</span></article><article className="current"><strong>{summary.current_queue || "—"}</strong><span>Sedang dipanggil</span></article><article><strong>{summary.completed ?? "—"}</strong><span>Selesai</span></article><article><strong>{summary.total ?? "—"}</strong><span>Total pendaftaran</span></article></section>
     <section className="queue-admin-layout"><article className="queue-qr-card"><div className="eyebrow">QR PENDAFTARAN</div><h2>Scan untuk ambil antrean</h2>{qrData ? <img src={qrData} alt="QR code halaman pendaftaran Poli TB" /> : <div className="qr-placeholder">Membuat QR…</div>}<code>{config.public_url || "Memuat alamat…"}</code><button type="button" className="button secondary" onClick={copyLink}>Salin Tautan</button><p>HP dan komputer harus terhubung ke Wi‑Fi/LAN yang sama. Pasang QR ini di area pendaftaran.</p></article><section className="panel queue-list-panel"><div className="queue-list-head"><div><div className="eyebrow">ANTREAN HARIAN</div><h2>Daftar Pendaftaran</h2></div><div className="queue-list-actions"><input type="date" value={visitDate} onChange={(event) => setVisitDate(event.target.value)} /><button className="button primary" type="button" onClick={callNext} disabled={busy || visitDate !== localTodayIso()}>Panggil Berikutnya</button></div></div><div className="table-wrap queue-table-wrap"><table className="queue-table"><thead><tr><th>Antrean</th><th>Pasien</th><th>Jenis</th><th>No. Handphone</th><th>Waktu Daftar</th><th>Status</th><th>Tindakan</th></tr></thead><tbody>{records.length ? records.map((record) => <tr key={record.id}><td><strong className="queue-code">{record.queue_code}</strong></td><td><strong>{record.full_name}</strong><div className="sub">RM {record.medical_record_no || "—"}</div></td><td>{record.patient_type}</td><td>{record.phone_number}</td><td>{new Date(record.created_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</td><td>{statusBadge(record.status)}</td><td><div className="queue-row-actions">{record.status === "Menunggu" ? <><button onClick={() => setStatus(record, "Dipanggil")} disabled={busy}>Panggil</button><button className="danger" onClick={() => setStatus(record, "Batal")} disabled={busy}>Batal</button></> : null}{record.status === "Dipanggil" ? <><button className="finish" onClick={() => setStatus(record, "Selesai")} disabled={busy}>Selesai</button><button onClick={() => setStatus(record, "Menunggu")} disabled={busy}>Kembalikan</button></> : null}</div></td></tr>) : <tr><td colSpan="7" className="empty">Belum ada pendaftaran pada tanggal ini.</td></tr>}</tbody></table></div></section></section>
     <footer className="team-footer"><strong>Tim TB Puskesmas Kebon Jeruk</strong><div className="team-tagline">“Kerja Jangan Asal Kerja”</div></footer>
@@ -755,12 +702,11 @@ function SputumApp() {
     finally { setLoading(false); setSyncing(false); }
   }, [clinic]);
   useEffect(() => { load(); }, [load]);
-  async function logout() { await api("/api/auth/logout", { method: "POST" }); window.location.hash = "#/login"; }
   const maxMonth = Math.max(...data.months.map((item) => item.value), 1);
   const maxClinic = Math.max(...data.clinics.map((item) => item.value), 1);
   const syncLabel = data.synced_at ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(data.synced_at)) : "—";
   return <>
-    <header className="topbar sputum-topbar"><div><a className="portal-back" href="#/">← Portal Utama</a><div className="eyebrow">LABORATORIUM TB</div><h1>Rekapitulasi Pemeriksaan Dahak</h1><p>Jumlah pemeriksaan berdasarkan asal poli dan bulan pendaftaran.</p></div><div className="header-actions"><span className="privacy">Data Agregat</span><button className="upload-button" type="button" onClick={() => load(true)} disabled={syncing}>{syncing ? "Menyinkronkan…" : "Sinkronkan Spreadsheet"}</button><button className="logout-button" type="button" onClick={logout}>Keluar</button></div></header>
+    <header className="topbar sputum-topbar"><div><a className="portal-back" href="#/">← Portal Utama</a><div className="eyebrow">LABORATORIUM TB</div><h1>Rekapitulasi Pemeriksaan Dahak</h1><p>Jumlah pemeriksaan berdasarkan asal poli dan bulan pendaftaran.</p></div><div className="header-actions"><span className="privacy">Data Agregat</span><button className="upload-button" type="button" onClick={() => load(true)} disabled={syncing}>{syncing ? "Menyinkronkan…" : "Sinkronkan Spreadsheet"}</button></div></header>
     <main className="sputum-main">
       {error ? <div className="notice"><span className="notice-icon">!</span><span>{error}</span></div> : null}
       {data.stale ? <div className="notice"><span className="notice-icon">!</span><span>Google Spreadsheet sedang tidak dapat dihubungi. Rekap terakhir yang tersimpan tetap ditampilkan.</span></div> : null}
@@ -776,17 +722,13 @@ function SputumApp() {
 }
 
 function AppRouter() {
-  const [hash, setHash] = useState(window.location.hash);
+  const [hash, setHash] = useState(window.location.hash || "#/");
 
   useEffect(() => {
-    const handleHashChange = () => setHash(window.location.hash);
+    const handleHashChange = () => setHash(window.location.hash || "#/");
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
-
-  const isLogin = location.pathname === "/login" || location.pathname.endsWith("login.html") || hash === "#/login";
-
-  if (isLogin) return <LoginApp />;
 
   if (hash === "#/daftar-poli-tb" || hash.startsWith("#/daftar-poli-tb?")) return <QueueRegistrationApp />;
   if (hash === "#/tb" || hash.startsWith("#/tb?")) return <DashboardApp />;
