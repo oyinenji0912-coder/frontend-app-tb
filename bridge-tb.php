@@ -2,7 +2,7 @@
 
 header('Content-Type: application/json');
 
-// 1. Dinamiskan Allowed Origin (Agar support Localhost & Production)
+// 1. Handling CORS (Multi-Origin / Production & Dev)
 $allowed_origins = [
     'https://puskesmaskebonjeruk.jakarta.go.id',
     'http://localhost:5173',
@@ -16,12 +16,11 @@ $http_origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if (in_array($http_origin, $allowed_origins)) {
     header("Access-Control-Allow-Origin: $http_origin");
 } else {
-    // Fallback default production
     header("Access-Control-Allow-Origin: https://puskesmaskebonjeruk.jakarta.go.id");
 }
 
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header("Access-Control-Allow-Headers: Content-Type, X-Requested-With, Accept, X-Filename");
+header("Access-Control-Allow-Headers: Content-Type, X-Requested-With, Accept, X-Filename, x-filename");
 header('Access-Control-Allow-Credentials: true');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -29,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+// Target URL mengarah ke Backend NestJS
 define('TARGET_BASE_URL', 'http://10.15.102.73:8766/');
 
 $endpoint = isset($_GET['endpoint']) ? trim($_GET['endpoint'], '/') : '';
@@ -60,12 +60,13 @@ $isMultipart = (stristr($contentType, 'multipart/form-data') !== false);
 $curl = curl_init();
 curl_setopt($curl, CURLOPT_URL, $targetUrl);
 curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
-curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 10);
-curl_setopt($curl, CURLOPT_TIMEOUT, 30);
-curl_setopt($curl, CURLOPT_HEADER, 1); // Tangkap Response Header dari NestJS untuk penanganan Cookie
+curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 15);
+curl_setopt($curl, CURLOPT_TIMEOUT, 120); // Timeout 2 menit untuk upload file besar
+curl_setopt($curl, CURLOPT_HEADER, 1);
 
 $headers = [];
 
+// Teruskan Content-Type
 if (!$isMultipart) {
     if (isset($_SERVER['CONTENT_TYPE'])) {
         $headers[] = 'Content-Type: ' . $_SERVER['CONTENT_TYPE'];
@@ -74,18 +75,19 @@ if (!$isMultipart) {
     }
 }
 
-if (isset($_SERVER['HTTP_X_FILENAME'])) {
-    $headers[] = 'X-Filename: ' . $_SERVER['HTTP_X_FILENAME'];
+// 2. Teruskan Header X-Filename (Case Insensitive untuk NestJS @Headers)
+$xFilename = $_SERVER['HTTP_X_FILENAME'] ?? $_SERVER['HTTP_X_FILENAME_LOWER'] ?? '';
+if ($xFilename !== '') {
+    $headers[] = 'X-Filename: ' . $xFilename;
+    $headers[] = 'x-filename: ' . $xFilename;
 }
 
-// Pass-through Session Cookie
+// 3. Teruskan Cookie Session
 if (isset($_COOKIE['kawaltb_session'])) {
     $headers[] = 'Cookie: kawaltb_session=' . $_COOKIE['kawaltb_session'];
-} elseif (isset($_COOKIE['connect.sid'])) { // Jaga-jaga jika NestJS pakai default name 'connect.sid'
+} elseif (isset($_COOKIE['connect.sid'])) {
     $headers[] = 'Cookie: connect.sid=' . $_COOKIE['connect.sid'];
 }
-
-curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
 
 switch ($method) {
     case 'POST':
@@ -117,10 +119,10 @@ switch ($method) {
             }
             curl_setopt($curl, CURLOPT_POSTFIELDS, $postData);
         } else {
+            // Raw binary file upload (Support Buffer Import Pasien/Tracing)
             $rawBody = file_get_contents('php://input');
-            if ($rawBody !== '') {
-                curl_setopt($curl, CURLOPT_POSTFIELDS, $rawBody);
-            }
+            curl_setopt($curl, CURLOPT_POSTFIELDS, $rawBody);
+            $headers[] = 'Content-Length: ' . strlen($rawBody);
         }
         break;
 
@@ -130,6 +132,7 @@ switch ($method) {
         $rawBody = file_get_contents('php://input');
         if ($rawBody !== '') {
             curl_setopt($curl, CURLOPT_POSTFIELDS, $rawBody);
+            $headers[] = 'Content-Length: ' . strlen($rawBody);
         }
         break;
 
@@ -137,6 +140,8 @@ switch ($method) {
     default:
         break;
 }
+
+curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
 
 $response = curl_exec($curl);
 
@@ -157,7 +162,7 @@ $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 $headerSize = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
 curl_close($curl);
 
-// Pisahkan Header dan Body Response
+// Pisahkan Header dan Body Response dari NestJS
 $responseHeaders = substr($response, 0, $headerSize);
 $result = substr($response, $headerSize);
 
@@ -171,7 +176,7 @@ if ($result === '' || $result === false) {
     exit;
 }
 
-// 2. Meneruskan Cookie Set-Cookie dari NestJS ke Browser (Penting untuk Login)
+// 4. Set-Cookie Pass-Through dari NestJS ke Browser
 preg_match_all('/^Set-Cookie:\s*([^;]*)/mi', $responseHeaders, $matches);
 if (!empty($matches[1])) {
     foreach ($matches[1] as $item) {
