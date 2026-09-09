@@ -2,11 +2,26 @@
 
 header('Content-Type: application/json');
 
-// 1. Izinkan Origin Website Publik Kawal TB
-$allowed_origin = 'https://puskesmaskebonjeruk.jakarta.go.id';
-header("Access-Control-Allow-Origin: $allowed_origin");
+// 1. Dinamiskan Allowed Origin (Agar support Localhost & Production)
+$allowed_origins = [
+    'https://puskesmaskebonjeruk.jakarta.go.id',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:8888',
+    'http://127.0.0.1:8888'
+];
+
+$http_origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+
+if (in_array($http_origin, $allowed_origins)) {
+    header("Access-Control-Allow-Origin: $http_origin");
+} else {
+    // Fallback default production
+    header("Access-Control-Allow-Origin: https://puskesmaskebonjeruk.jakarta.go.id");
+}
+
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header("Access-Control-Allow-Headers: Content-Type, X-Requested-With, Accept");
+header("Access-Control-Allow-Headers: Content-Type, X-Requested-With, Accept, X-Filename");
 header('Access-Control-Allow-Credentials: true');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -14,7 +29,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// 2. Sesuaikan Port Target Backend NestJS Kawal TB (Port 8766)
 define('TARGET_BASE_URL', 'http://10.15.102.73:8766/');
 
 $endpoint = isset($_GET['endpoint']) ? trim($_GET['endpoint'], '/') : '';
@@ -48,6 +62,7 @@ curl_setopt($curl, CURLOPT_URL, $targetUrl);
 curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
 curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 10);
 curl_setopt($curl, CURLOPT_TIMEOUT, 30);
+curl_setopt($curl, CURLOPT_HEADER, 1); // Tangkap Response Header dari NestJS untuk penanganan Cookie
 
 $headers = [];
 
@@ -59,14 +74,15 @@ if (!$isMultipart) {
     }
 }
 
-// Teruskan header khusus (seperti X-Filename jika ada upload raw file)
 if (isset($_SERVER['HTTP_X_FILENAME'])) {
     $headers[] = 'X-Filename: ' . $_SERVER['HTTP_X_FILENAME'];
 }
 
-// 3. Sesuaikan Nama Cookie Autentikasi untuk Kawal TB
+// Pass-through Session Cookie
 if (isset($_COOKIE['kawaltb_session'])) {
     $headers[] = 'Cookie: kawaltb_session=' . $_COOKIE['kawaltb_session'];
+} elseif (isset($_COOKIE['connect.sid'])) { // Jaga-jaga jika NestJS pakai default name 'connect.sid'
+    $headers[] = 'Cookie: connect.sid=' . $_COOKIE['connect.sid'];
 }
 
 curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
@@ -122,7 +138,7 @@ switch ($method) {
         break;
 }
 
-$result = curl_exec($curl);
+$response = curl_exec($curl);
 
 if (curl_errno($curl)) {
     $errorMsg = curl_error($curl);
@@ -138,7 +154,12 @@ if (curl_errno($curl)) {
 }
 
 $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+$headerSize = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
 curl_close($curl);
+
+// Pisahkan Header dan Body Response
+$responseHeaders = substr($response, 0, $headerSize);
+$result = substr($response, $headerSize);
 
 if ($result === '' || $result === false) {
     http_response_code(502);
@@ -150,14 +171,26 @@ if ($result === '' || $result === false) {
     exit;
 }
 
-// 4. Sesuaikan Handling Login & Logout Endpoint Kawal TB
-if ($httpCode === 200) {
-    if ($endpoint === 'api/auth/logout') {
-        setcookie('kawaltb_session', '', [
-            'expires' => time() - 3600,
-            'path' => '/'
-        ]);
+// 2. Meneruskan Cookie Set-Cookie dari NestJS ke Browser (Penting untuk Login)
+preg_match_all('/^Set-Cookie:\s*([^;]*)/mi', $responseHeaders, $matches);
+if (!empty($matches[1])) {
+    foreach ($matches[1] as $item) {
+        parse_str($item, $cookieInfo);
+        foreach ($cookieInfo as $cookieName => $cookieValue) {
+            setcookie($cookieName, $cookieValue, [
+                'expires' => time() + 28800, // 8 Jam
+                'path' => '/',
+                'httponly' => true,
+                'samesite' => 'Lax'
+            ]);
+        }
     }
+}
+
+// Logout handling
+if ($httpCode === 200 && $endpoint === 'api/auth/logout') {
+    setcookie('kawaltb_session', '', ['expires' => time() - 3600, 'path' => '/']);
+    setcookie('connect.sid', '', ['expires' => time() - 3600, 'path' => '/']);
 }
 
 http_response_code($httpCode ?: 200);
